@@ -11,8 +11,11 @@ from app.helpers import (
     format_appeal_reviewed,
     get_reviewer_display_name,
 )
+from app.logging_config import get_logger
+from app.metrics import CALLBACKS_DONE
 
 router = Router()
+logger = get_logger(__name__)
 
 
 @router.callback_query(F.data.startswith("done:"))
@@ -23,18 +26,25 @@ async def callback_done(callback: CallbackQuery) -> None:
         if not appeal:
             try:
                 await callback.answer(APPEAL_NOT_FOUND, show_alert=True)
-            except TelegramBadRequest:
-                pass
+            except TelegramBadRequest as e:
+                logger.warning("callback_answer_failed", appeal_id=appeal_id, error=str(e))
             return
         if not appeal.is_active:
             try:
                 await callback.answer(APPEAL_DONE_ALREADY)
-            except TelegramBadRequest:
-                pass
+            except TelegramBadRequest as e:
+                logger.warning("callback_answer_failed", appeal_id=appeal_id, error=str(e))
             return
         appeal.is_active = False
         appeal.reviewed_by = callback.from_user.id if callback.from_user else None
         await session.commit()
+
+    CALLBACKS_DONE.inc()
+    logger.info(
+        "callback_done",
+        appeal_id=appeal_id,
+        reviewed_by=appeal.reviewed_by,
+    )
 
     # Xabarni o‘chirmaymiz, edit qilamiz: tepaga "ko‘rib chiqildi" qatorini qo‘shamiz
     user = callback.from_user
@@ -45,9 +55,9 @@ async def callback_done(callback: CallbackQuery) -> None:
     new_text = format_appeal_reviewed(appeal, reviewer_name)
     try:
         await callback.message.edit_text(new_text, reply_markup=None)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("edit_message_failed", appeal_id=appeal_id, error=str(e))
     try:
         await callback.answer(APPEAL_DONE_CONFIRM)
-    except TelegramBadRequest:
-        pass
+    except TelegramBadRequest as e:
+        logger.warning("callback_answer_failed", appeal_id=appeal_id, error=str(e))

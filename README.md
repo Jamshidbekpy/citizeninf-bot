@@ -17,6 +17,9 @@ Telegram bot for collecting and routing citizen appeals in **Sirdaryo region**. 
 - [Webhook & Reverse Proxy](#webhook--reverse-proxy)
 - [User Flow](#user-flow)
 - [Admin Flow](#admin-flow)
+- [Logging](#logging)
+- [Monitoring](#monitoring)
+- [Tests](#tests)
 - [Security & Operations](#security--operations)
 - [Troubleshooting](#troubleshooting)
 - [License](#license)
@@ -58,10 +61,13 @@ Telegram bot for collecting and routing citizen appeals in **Sirdaryo region**. 
 | Component      | Choice              | Notes                                                |
 |----------------|---------------------|------------------------------------------------------|
 | Bot framework  | aiogram 3.x         | Webhook via custom aiohttp app                      |
-| HTTP server    | aiohttp             | POST `/webhook`, GET `/health`                      |
+| HTTP server    | aiohttp             | POST `/webhook`, GET `/health`, GET `/metrics`     |
 | DB             | PostgreSQL 16       | Async only                                          |
 | ORM            | SQLAlchemy 2.x      | Async engine + `asyncpg`                            |
-| Config         | python-dotenv       | Required: `BOT_TOKEN`, `WEBHOOK_URL`, `GROUP_ID`   |
+| Config         | pydantic-settings   | Required: `BOT_TOKEN`, `WEBHOOK_URL`, `GROUP_ID`   |
+| Logging        | structlog           | `LOG_LEVEL`, `LOG_FORMAT=json`                      |
+| Monitoring     | prometheus_client   | `/metrics`                                          |
+| Tests          | pytest              | Unit tests for helpers                              |
 | Deployment     | Docker Compose      | Services: `db`, `bot`                               |
 
 ---
@@ -80,9 +86,11 @@ citizeninf-bot/
 ├── LICENSE
 └── app/
     ├── __init__.py
-    ├── main.py              # aiohttp app, /webhook, /health, lifespan (init_db), set_webhook
-    ├── config.py             # Env loading, DATABASE_URL
+    ├── main.py               # aiohttp app, /webhook, /health, /metrics, lifespan, set_webhook
+    ├── config.py             # pydantic-settings (env validation)
     ├── database.py           # Async engine, session factory, Base, init_db + reviewed_by migration
+    ├── logging_config.py     # structlog setup, get_logger
+    ├── metrics.py            # Prometheus counters (webhook, appeals, callbacks)
     ├── models.py             # Appeal (SQLAlchemy)
     ├── states.py             # FSM: AppealStates (district → full_name → phone → problem)
     ├── keyboards.py          # Districts (2-column), phone button, appeal_done inline
@@ -96,6 +104,10 @@ citizeninf-bot/
         ├── start.py          # /start → welcome + district keyboard
         ├── appeal.py         # FSM handlers + save appeal + notify group
         └── admin_callback.py # done:{id} → edit message, is_active=False, reviewed_by=admin_id
+├── tests/
+│   ├── conftest.py           # mock_appeal, test env defaults
+│   └── test_helpers.py        # normalize_phone, get_reviewer_display_name, format_*
+├── pytest.ini
 ```
 
 Handlers use **helpers** for all user/admin text, formatting, validation, and sending to the admin group so that handlers stay thin and logic is reusable.
@@ -211,6 +223,30 @@ server {
 ```
 
 Set `WEBHOOK_URL=https://your-domain.com` (no trailing slash). The app registers `https://your-domain.com/webhook` on startup.
+
+---
+
+## Logging
+
+- **structlog** — structured logging; `LOG_LEVEL` (default `INFO`) va ixtiyoriy `LOG_FORMAT=json` (production uchun).
+- Loglar: webhook qabul qilish (debug), appeal yaratilishi (info), callback (info), xatoliklar (warning/error).
+- Loyiha logikasiga ta’sir qilmaydi, faqat kuzatuv.
+
+---
+
+## Monitoring
+
+- **GET /health** — DB ga `SELECT 1` bilan ulanish tekshiriladi; muvaffaqiyatsiz bo‘lsa **503**.
+- **GET /metrics** — Prometheus formatida: `webhook_requests_total`, `appeals_created_total{district=...}`, `callbacks_done_total`.
+- Nginx/orchestrator `/health` orqali liveness, `/metrics` orqali scraping qilishi mumkin.
+
+---
+
+## Tests
+
+- **pytest** + **pytest-asyncio** — helper funksiyalari uchun unit testlar (`tests/test_helpers.py`): `normalize_phone`, `get_reviewer_display_name`, `format_appeal_notify`, `format_appeal_reviewed`.
+- Ishga tushirish: `pip install -r requirements.txt && pytest tests/ -v`
+- Testlar `.env` yoki `conftest.py` dagi test env ga tayanadi; loyiha logikasiga ta’sir qilmaydi.
 
 ---
 

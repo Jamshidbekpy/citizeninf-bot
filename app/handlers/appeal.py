@@ -17,8 +17,11 @@ from app.helpers import (
     normalize_phone,
     send_appeal_to_group,
 )
+from app.logging_config import get_logger
+from app.metrics import APPEALS_CREATED
 
 router = Router()
+logger = get_logger(__name__)
 
 
 @router.message(AppealStates.district, F.text.in_(DISTRICTS))
@@ -83,4 +86,11 @@ async def process_problem(message: Message, state: FSMContext) -> None:
                 appeal_from_db.group_message_id = group_message.message_id
                 await session.commit()
 
+    APPEALS_CREATED.labels(district=appeal.district).inc()
+    logger.info(
+        "appeal_created",
+        appeal_id=appeal.id,
+        user_id=appeal.user_id,
+        district=appeal.district,
+    )
     await message.answer(SUCCESS_APPEAL_SUBMITTED)

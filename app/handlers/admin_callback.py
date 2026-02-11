@@ -1,5 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
+from aiogram.exceptions import TelegramBadRequest
 
 from app.database import async_session_maker
 from app.models import Appeal
@@ -7,6 +8,8 @@ from app.helpers import (
     APPEAL_NOT_FOUND,
     APPEAL_DONE_ALREADY,
     APPEAL_DONE_CONFIRM,
+    format_appeal_reviewed,
+    get_reviewer_display_name,
 )
 
 router = Router()
@@ -18,20 +21,33 @@ async def callback_done(callback: CallbackQuery) -> None:
     async with async_session_maker() as session:
         appeal = await session.get(Appeal, appeal_id)
         if not appeal:
-            await callback.answer(APPEAL_NOT_FOUND, show_alert=True)
+            try:
+                await callback.answer(APPEAL_NOT_FOUND, show_alert=True)
+            except TelegramBadRequest:
+                pass
             return
         if not appeal.is_active:
-            await callback.answer(APPEAL_DONE_ALREADY)
             try:
-                await callback.message.delete()
-            except Exception:
+                await callback.answer(APPEAL_DONE_ALREADY)
+            except TelegramBadRequest:
                 pass
             return
         appeal.is_active = False
+        appeal.reviewed_by = callback.from_user.id if callback.from_user else None
         await session.commit()
 
+    # Xabarni o‘chirmaymiz, edit qilamiz: tepaga "ko‘rib chiqildi" qatorini qo‘shamiz
+    user = callback.from_user
+    reviewer_name = get_reviewer_display_name(
+        user.first_name if user else None,
+        user.last_name if user else None,
+    )
+    new_text = format_appeal_reviewed(appeal, reviewer_name)
     try:
-        await callback.message.delete()
+        await callback.message.edit_text(new_text, reply_markup=None)
     except Exception:
         pass
-    await callback.answer(APPEAL_DONE_CONFIRM)
+    try:
+        await callback.answer(APPEAL_DONE_CONFIRM)
+    except TelegramBadRequest:
+        pass

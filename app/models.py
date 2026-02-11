@@ -16,4 +16,6 @@ class Appeal(Base):
     problem_text: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     group_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reviewed_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # guruhda "Ko'rib chiqildi" bosgan admin id
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    

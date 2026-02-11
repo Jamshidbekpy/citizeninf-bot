@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 
 from app.keyboards import district_keyboard, phone_keyboard, DISTRICTS
@@ -25,7 +25,7 @@ router = Router()
 async def process_district(message: Message, state: FSMContext) -> None:
     await state.update_data(district=message.text)
     await state.set_state(AppealStates.full_name)
-    await message.answer(PROMPT_FULL_NAME, reply_markup=None)
+    await message.answer(PROMPT_FULL_NAME, reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(AppealStates.district, F.text)
@@ -48,7 +48,7 @@ async def process_phone(message: Message, state: FSMContext) -> None:
     phone = message.contact.phone_number if message.contact else ""
     await state.update_data(phone=normalize_phone(phone))
     await state.set_state(AppealStates.problem)
-    await message.answer(PROMPT_PROBLEM, reply_markup=None)
+    await message.answer(PROMPT_PROBLEM, reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(AppealStates.phone, F.text)

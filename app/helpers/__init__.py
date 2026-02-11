@@ -15,6 +15,8 @@ from app.helpers.text import (
     APPEAL_NOT_FOUND,
     APPEAL_DONE_CONFIRM,
     format_appeal_notify,
+    format_appeal_reviewed,
+    get_reviewer_display_name,
 )
 from app.helpers.validation import normalize_phone
 from app.helpers.appeal import send_appeal_to_group
@@ -32,6 +34,8 @@ __all__ = [
     "APPEAL_NOT_FOUND",
     "APPEAL_DONE_CONFIRM",
     "format_appeal_notify",
+    "format_appeal_reviewed",
+    "get_reviewer_display_name",
     "normalize_phone",
     "send_appeal_to_group",
 ]

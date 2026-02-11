@@ -1,6 +1,6 @@
 # Citizen Appeals Bot (citizeninf-bot)
 
-Telegram bot for collecting and routing citizen appeals in Sirdaryo region. Appeals are stored in PostgreSQL and forwarded to an admin group; admins can mark items as resolved (inline button), which deletes the group message and sets `is_active=False` in the database.
+Telegram bot for collecting and routing citizen appeals in **Sirdaryo region**. Appeals are stored in PostgreSQL and forwarded to an admin group; admins mark items as reviewed via an inline button — the group message is **edited** (not deleted) to show who reviewed it, and the record is updated in the database.
 
 ---
 
@@ -10,21 +10,24 @@ Telegram bot for collecting and routing citizen appeals in Sirdaryo region. Appe
 - [Architecture](#architecture)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
+- [Data Model](#data-model)
 - [Environment Variables](#environment-variables)
 - [Local Development](#local-development)
 - [Production (Docker)](#production-docker)
 - [Webhook & Reverse Proxy](#webhook--reverse-proxy)
 - [User Flow](#user-flow)
+- [Admin Flow](#admin-flow)
 - [Security & Operations](#security--operations)
 - [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ---
 
 ## Overview
 
-- **Purpose:** Single entry point for citizens to submit appeals by district; admins receive notifications in a Telegram group and can close items with one click.
+- **Purpose:** Single entry point for citizens to submit appeals by district; admins receive notifications in a Telegram group and can mark items as “reviewed” with one click. The group message is edited to show the reviewer’s name instead of being deleted.
 - **Mode:** Webhook-only in production (no long polling).
-- **Persistence:** PostgreSQL via SQLAlchemy 2 (async, `asyncpg`). Single table `appeals` with lifecycle flag `is_active`.
+- **Persistence:** PostgreSQL via SQLAlchemy 2 (async, `asyncpg`). Single table `appeals` with `is_active` and `reviewed_by` for lifecycle and audit.
 
 ---
 
@@ -39,27 +42,27 @@ Telegram bot for collecting and routing citizen appeals in Sirdaryo region. Appe
                                                           ▼
                                                    ┌──────────────┐
                                                    │  PostgreSQL  │
-                                                   │  (appeals)   │
+                                                   │  appeals     │
                                                    └──────────────┘
 ```
 
-- Telegram sends `Update` objects to `WEBHOOK_URL/webhook`.
-- Bot (aiohttp app) receives JSON, validates as `Update`, feeds into aiogram `Dispatcher`, returns 200.
-- Handlers run FSM (district → full_name → phone → problem), then persist appeal and send a formatted message to `GROUP_ID` with an inline “Done” button.
-- Callback handler updates `is_active=False` and deletes the group message.
+- Telegram sends updates to `WEBHOOK_URL/webhook`.
+- Bot (aiohttp) receives JSON, parses as `Update`, passes to aiogram `Dispatcher`, returns 200.
+- Handlers implement FSM: district → full_name → phone → problem; then the appeal is saved and a formatted message is sent to `GROUP_ID` with an inline “Ko‘rib chiqildi / Tugatildi” button.
+- When an admin presses the button: the **message is edited** (top line: “Ushbu murojaat {reviewer_name} tomonidan ko'rib chiqildi ✅”), inline keyboard is removed, `is_active=False` and `reviewed_by=<admin_telegram_id>` are stored.
 
 ---
 
 ## Tech Stack
 
-| Component      | Choice              | Notes                                      |
-|----------------|---------------------|--------------------------------------------|
-| Bot framework  | aiogram 3.x         | Webhook via custom aiohttp app             |
-| HTTP server    | aiohttp             | Single POST `/webhook`, GET `/health`      |
-| DB             | PostgreSQL 16       | Async access only                          |
-| ORM            | SQLAlchemy 2.x      | Async engine + `asyncpg`                    |
-| Config         | python-dotenv       | No defaults for `BOT_TOKEN`, `WEBHOOK_URL`, `GROUP_ID` |
-| Deployment     | Docker Compose      | Services: `db`, `bot`                      |
+| Component      | Choice              | Notes                                                |
+|----------------|---------------------|------------------------------------------------------|
+| Bot framework  | aiogram 3.x         | Webhook via custom aiohttp app                      |
+| HTTP server    | aiohttp             | POST `/webhook`, GET `/health`                      |
+| DB             | PostgreSQL 16       | Async only                                          |
+| ORM            | SQLAlchemy 2.x      | Async engine + `asyncpg`                            |
+| Config         | python-dotenv       | Required: `BOT_TOKEN`, `WEBHOOK_URL`, `GROUP_ID`   |
+| Deployment     | Docker Compose      | Services: `db`, `bot`                               |
 
 ---
 
@@ -67,80 +70,102 @@ Telegram bot for collecting and routing citizen appeals in Sirdaryo region. Appe
 
 ```
 citizeninf-bot/
-├── .env.example          # Template for required env vars
-├── docker-compose.yml     # db + bot services
-├── Dockerfile             # Bot image (Python 3.12)
+├── .dockerignore
+├── .env.example
+├── .gitignore
+├── docker-compose.yml
+├── Dockerfile
 ├── requirements.txt
 ├── README.md
+├── LICENSE
 └── app/
     ├── __init__.py
-    ├── main.py            # aiohttp app, webhook route, lifespan (init_db), set_webhook
-    ├── config.py          # Env loading and DATABASE_URL
-    ├── database.py        # Async engine, session factory, Base, init_db
-    ├── models.py          # Appeal (SQLAlchemy model)
-    ├── states.py          # FSM states (AppealStates)
-    ├── keyboards.py       # Reply (districts, phone) + Inline (done)
-    ├── helpers/           # Shared logic for handlers
-    │   ├── __init__.py     # Re-exports
-    │   ├── text.py         # All user/admin message strings + format_appeal_notify
-    │   ├── validation.py   # normalize_phone, etc.
-    │   └── appeal.py       # send_appeal_to_group(bot, appeal)
+    ├── main.py              # aiohttp app, /webhook, /health, lifespan (init_db), set_webhook
+    ├── config.py             # Env loading, DATABASE_URL
+    ├── database.py           # Async engine, session factory, Base, init_db + reviewed_by migration
+    ├── models.py             # Appeal (SQLAlchemy)
+    ├── states.py             # FSM: AppealStates (district → full_name → phone → problem)
+    ├── keyboards.py          # Districts (2-column), phone button, appeal_done inline
+    ├── helpers/
+    │   ├── __init__.py       # Re-exports
+    │   ├── text.py           # All copy, format_appeal_notify, format_appeal_reviewed, get_reviewer_display_name
+    │   ├── validation.py     # normalize_phone
+    │   └── appeal.py         # send_appeal_to_group(bot, appeal)
     └── handlers/
-        ├── __init__.py     # Router aggregation
-        ├── start.py        # /start → welcome + district keyboard
-        ├── appeal.py       # FSM: district → full_name → phone → problem → save + notify
-        └── admin_callback.py  # done:{id} → is_active=False, delete message
+        ├── __init__.py       # Router aggregation
+        ├── start.py          # /start → welcome + district keyboard
+        ├── appeal.py         # FSM handlers + save appeal + notify group
+        └── admin_callback.py # done:{id} → edit message, is_active=False, reviewed_by=admin_id
 ```
 
-Handlers depend on **helpers** for copy, formatting, validation, and sending to the admin group so that business logic stays out of handler code.
+Handlers use **helpers** for all user/admin text, formatting, validation, and sending to the admin group so that handlers stay thin and logic is reusable.
+
+---
+
+## Data Model
+
+**Table: `appeals`**
+
+| Column             | Type        | Description |
+|--------------------|-------------|-------------|
+| `id`               | SERIAL      | Primary key |
+| `user_id`          | BIGINT      | Telegram user id (applicant) |
+| `full_name`        | VARCHAR(255)| Fuqoro ism-familiyasi |
+| `district`         | VARCHAR(255)| Tanlangan tuman |
+| `phone`            | VARCHAR(50) | Telefon raqam |
+| `problem_text`     | TEXT        | Muammo matni |
+| `is_active`        | BOOLEAN     | Default `true`; admin “Ko‘rib chiqildi” bosganda `false` |
+| `group_message_id`| INTEGER     | Guruhdagi xabar id (edit/delete uchun) |
+| `reviewed_by`      | BIGINT      | “Ko‘rib chiqildi” bosgan adminning Telegram user id |
+| `created_at`       | TIMESTAMP   | Yaratilgan vaqt |
+
+On first run, `init_db()` creates the table; if the table already exists, it runs `ALTER TABLE appeals ADD COLUMN IF NOT EXISTS reviewed_by BIGINT` so old deployments get the column without manual migration.
 
 ---
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and set values. Required in all environments:
+Copy `.env.example` to `.env` and set values. **Required:**
 
-| Variable            | Description                    | Example                    |
-|---------------------|--------------------------------|----------------------------|
-| `BOT_TOKEN`         | Telegram Bot API token        | From @BotFather            |
-| `WEBHOOK_URL`       | Public base URL (HTTPS)        | `https://your-domain.com`  |
-| `GROUP_ID`          | Admin group/supergroup ID     | `-1001234567890`          |
-| `POSTGRES_PASSWORD` | DB password (Docker)          | Strong secret              |
+| Variable            | Description                    | Example                  |
+|---------------------|--------------------------------|--------------------------|
+| `BOT_TOKEN`         | Telegram Bot API token        | From @BotFather          |
+| `WEBHOOK_URL`       | Public HTTPS base URL          | `https://your-domain.com`|
+| `GROUP_ID`          | Admin group/supergroup ID      | `-1001234567890`         |
+| `POSTGRES_PASSWORD` | DB password (Docker)           | Strong secret            |
 
-Used by the app (defaults in code or compose):
+**Optional (with defaults):**
 
-| Variable           | Description        | Default (if any)   |
-|--------------------|--------------------|--------------------|
-| `POSTGRES_HOST`    | DB host            | `db` in Docker     |
-| `POSTGRES_PORT`    | DB port            | `5432`             |
-| `POSTGRES_USER`    | DB user            | `citizeninf`       |
-| `POSTGRES_DB`      | DB name            | `citizeninf`       |
+| Variable           | Description   | Default    |
+|--------------------|---------------|------------|
+| `POSTGRES_HOST`    | DB host       | `db` (Docker) |
+| `POSTGRES_PORT`    | DB port       | `5432`     |
+| `POSTGRES_USER`    | DB user       | `citizeninf` |
+| `POSTGRES_DB`      | DB name       | `citizeninf` |
 
 ---
 
 ## Local Development
 
-1. **Python 3.12+**, virtualenv recommended:
+1. **Python 3.12+**, virtualenv:
 
    ```bash
    python3 -m venv .venv
-   source .venv/bin/activate   # or .venv\Scripts\activate on Windows
+   source .venv/bin/activate   # Windows: .venv\Scripts\activate
    pip install -r requirements.txt
    ```
 
-2. **PostgreSQL** running locally (or in Docker). Create DB and user if needed.
+2. **PostgreSQL** (local or Docker). Create DB/user if needed.
 
-3. **.env** with at least:
-   - `BOT_TOKEN`, `WEBHOOK_URL`, `GROUP_ID`
-   - `POSTGRES_HOST=localhost` (and port/user/password/db).
+3. **.env** with `BOT_TOKEN`, `WEBHOOK_URL`, `GROUP_ID`, and local DB settings (e.g. `POSTGRES_HOST=localhost`).
 
-4. **Webhook:** For local testing you need a public HTTPS URL (e.g. ngrok) pointing to your machine and set `WEBHOOK_URL` to that base URL. Then run:
+4. **Webhook:** Use a public HTTPS URL (e.g. ngrok) and set `WEBHOOK_URL`. Then:
 
    ```bash
    python -m app.main
    ```
 
-   The app listens on `0.0.0.0:8080` and sets the webhook on startup. Health check: `GET http://localhost:8080/health`.
+   App listens on `0.0.0.0:8080`. Health: `GET http://localhost:8080/health`.
 
 ---
 
@@ -153,17 +178,16 @@ Used by the app (defaults in code or compose):
    docker compose up -d --build
    ```
 
-3. Ensure `WEBHOOK_URL` is the public HTTPS base URL where the reverse proxy exposes the bot (see next section).
-4. Bot service listens on port `8080` inside the network; expose only via reverse proxy, not directly to the internet if possible.
+3. Ensure `WEBHOOK_URL` is the public HTTPS URL where your reverse proxy serves `/webhook` (see next section).
 
 ---
 
 ## Webhook & Reverse Proxy
 
-- Telegram allows webhook only on **HTTPS**, ports **80, 443, 88, 8443**.
-- Expose a path (e.g. `/webhook`) and proxy to the bot container.
+- Webhook only over **HTTPS**, ports **80, 443, 88, 8443**.
+- Expose `/webhook` (and optionally `/health`) and proxy to the bot container.
 
-**Example nginx** (adjust domain and upstream):
+**Example nginx:**
 
 ```nginx
 server {
@@ -186,49 +210,56 @@ server {
 }
 ```
 
-Set `WEBHOOK_URL=https://your-domain.com` (no trailing slash). The app will register `https://your-domain.com/webhook`.
+Set `WEBHOOK_URL=https://your-domain.com` (no trailing slash). The app registers `https://your-domain.com/webhook` on startup.
 
 ---
 
 ## User Flow
 
-1. **Start:** User sends `/start` → welcome text + list of districts (reply keyboard).
-2. **District:** User selects district → bot asks for full name.
-3. **Full name:** User sends text → bot asks for phone and shows “Share phone number” button.
-4. **Phone:** User shares contact (validated: must be own contact) → bot asks for problem description.
-5. **Problem:** User sends text → bot:
-   - Creates `Appeal` with `is_active=True`,
-   - Sends formatted notification to `GROUP_ID` with inline “Ko‘rib chiqildi / Tugatildi”,
-   - Stores `group_message_id` on the appeal,
-   - Replies to user with success message.
-6. **Admin:** In the group, admin presses the inline button → callback `done:{appeal_id}`:
-   - `is_active` set to `False`,
-   - Group message deleted,
-   - Callback answer confirms.
+1. **/start** — Welcome text + **district keyboard** (11 tumans, 2 columns). Tumanlar: Boyovut, Guliston, Mirzaobod, Oqoltin, Sardoba, Sayxunobod, Sirdaryo, Xovos tumanlari; Guliston, Yangiyer, Shirin shaharlari.
+2. **District** — User selects a district → keyboard is **removed** (`ReplyKeyboardRemove`) → bot asks for full name.
+3. **Full name** — User sends text → bot asks for phone and shows **“📱 Telefon raqamni yuborish”** (one-time keyboard).
+4. **Phone** — User shares contact (must be own contact) → keyboard is **removed** → bot asks for problem text.
+5. **Problem** — User sends text → bot creates `Appeal` (`is_active=True`), sends notification to `GROUP_ID`, saves `group_message_id`, replies with success. User is prompted to send `/start` for a new appeal.
 
-All user- and admin-facing strings live in `app/helpers/text.py` for easy editing and consistency.
+All prompts and error messages are in `app/helpers/text.py`.
+
+---
+
+## Admin Flow
+
+1. **Group notification** — Each new appeal appears as a message: full name, district, phone, “Muammo: …” and an inline button **“✅ Ko‘rib chiqildi / Tugatildi”**.
+2. **Admin presses the button** — Callback `done:{appeal_id}`:
+   - `is_active` → `False`, `reviewed_by` → admin’s Telegram user id.
+   - **Message is edited** (not deleted): same body with a **new first line**:  
+     `Ushbu murojaat {reviewer_full_name yoki first_name} tomonidan ko'rib chiqildi ✅`  
+     Inline keyboard is removed.
+   - Callback answer: “Murojaat ko‘rib chiqildi deb belgilandingiz.”
+3. **Old or invalid callback** — If the query is too old or invalid, `callback.answer()` can raise `TelegramBadRequest`; the handler catches it so the app does not return 500.
 
 ---
 
 ## Security & Operations
 
-- **Secrets:** Never commit `.env`. Use secrets management in CI/CD or orchestration for production.
-- **GROUP_ID:** Obtain from group info (e.g. add @userinfobot or use Telegram API); must be a supergroup for stable ID.
-- **DB:** Use a strong `POSTGRES_PASSWORD`; restrict network access to the bot container only.
-- **Webhook:** Validate that incoming requests are from Telegram (e.g. secret token in webhook URL) if you need extra assurance.
-- **Logging:** Application uses standard logging; configure level and output (e.g. JSON, rotation) as needed for production.
+- **Secrets:** Do not commit `.env`. Use secrets in CI/CD or orchestration for production.
+- **GROUP_ID:** Use a **supergroup** and get its numeric ID (e.g. @userinfobot or Telegram API); add the bot as a member.
+- **DB:** Use a strong `POSTGRES_PASSWORD`; restrict DB access to the bot container.
+- **Webhook:** Optionally use a secret token in the webhook URL for extra validation.
+- **Logging:** Standard logging; set level and output (e.g. JSON, rotation) for production.
 
 ---
 
 ## Troubleshooting
 
-| Issue | Check |
-|-------|--------|
-| Webhook not receiving updates | `WEBHOOK_URL` must be HTTPS and reachable by Telegram; confirm with `getWebhookInfo`. |
-| “Murojaat topilmadi” on Done | Appeal was deleted or DB was reset; callback still points to old id. |
-| Bot doesn’t reply in group | Bot must be member of the group; `GROUP_ID` must be the group’s numeric ID (negative for supergroups). |
-| DB connection errors | In Docker, use service name `db` for `POSTGRES_HOST`; ensure `bot` starts after DB is healthy. |
-| Tables missing | `init_db()` runs on app startup and creates tables; check logs for SQLAlchemy errors. |
+| Issue | What to check |
+|-------|----------------|
+| Webhook not receiving updates | `WEBHOOK_URL` must be HTTPS and reachable by Telegram. Verify with getWebhookInfo. |
+| “Murojaat topilmadi” on Done | Appeal missing or DB reset; callback may reference old id. |
+| Bot does not reply in group | Bot must be in the group; `GROUP_ID` must be the supergroup numeric ID (negative). |
+| DB connection errors | In Docker use `POSTGRES_HOST=db`; ensure `bot` starts after DB is healthy. |
+| Missing table/column | `init_db()` creates tables and runs `ALTER TABLE appeals ADD COLUMN IF NOT EXISTS reviewed_by BIGINT`. Check logs for SQLAlchemy/asyncpg errors. |
+| “query is too old” / 500 on callback | Handled: `TelegramBadRequest` is caught so old callback queries do not crash the app. |
+| District or phone keyboard does not disappear | Ensure handlers send `ReplyKeyboardRemove()` when moving to full name and to problem step. |
 
 ---
 

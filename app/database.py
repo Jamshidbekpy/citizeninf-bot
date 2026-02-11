@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
@@ -25,6 +26,8 @@ async def init_db() -> None:
     from app.models import Appeal  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Eski bazalarda reviewed_by bo‘lmasa qo‘shiladi
+        await conn.execute(text("ALTER TABLE appeals ADD COLUMN IF NOT EXISTS reviewed_by BIGINT"))
 
 
 async def get_session() -> AsyncSession:

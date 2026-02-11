@@ -1,6 +1,7 @@
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import Update
 from aiohttp import web
 
 from app.config import config
@@ -22,8 +23,8 @@ async def lifespan(app: web.Application):
 
 async def webhook_handler(request: web.Request) -> web.Response:
     data = await request.json()
-    # Aiogram 3 Dispatcher qabul qiladigan formatga to'g'ridan-to'g'ri dict ni beramiz.
-    await dp.feed_update(bot, data)
+    update = Update.model_validate(data)
+    await dp.feed_update(bot, update)
     return web.Response()
 
 

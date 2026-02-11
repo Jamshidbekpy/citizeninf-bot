@@ -16,8 +16,12 @@ DISTRICTS = [
 
 
 def district_keyboard() -> ReplyKeyboardMarkup:
-    buttons = [[KeyboardButton(text=d)] for d in DISTRICTS]
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+    # 2 ustunli chiroyli tugma: har qatorda 2 ta tuman
+    rows = []
+    for i in range(0, len(DISTRICTS), 2):
+        row = [KeyboardButton(text=d) for d in DISTRICTS[i : i + 2]]
+        rows.append(row)
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=True)
 
 
 def phone_keyboard() -> ReplyKeyboardMarkup:

@@ -28,35 +28,35 @@ logger = get_logger(__name__)
 async def process_district(message: Message, state: FSMContext) -> None:
     await state.update_data(district=message.text)
     await state.set_state(AppealStates.full_name)
-    await message.answer(PROMPT_FULL_NAME, reply_markup=ReplyKeyboardRemove())
+    await message.answer(PROMPT_FULL_NAME, reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
 
 
 @router.message(AppealStates.district, F.text)
 async def district_invalid(message: Message) -> None:
-    await message.answer(ERR_DISTRICT_INVALID, reply_markup=district_keyboard())
+    await message.answer(ERR_DISTRICT_INVALID, reply_markup=district_keyboard(), parse_mode="HTML")
 
 
 @router.message(AppealStates.full_name, F.text)
 async def process_full_name(message: Message, state: FSMContext) -> None:
     await state.update_data(full_name=message.text.strip())
     await state.set_state(AppealStates.phone)
-    await message.answer(PROMPT_PHONE, reply_markup=phone_keyboard())
+    await message.answer(PROMPT_PHONE, reply_markup=phone_keyboard(), parse_mode="HTML")
 
 
 @router.message(AppealStates.phone, F.contact)
 async def process_phone(message: Message, state: FSMContext) -> None:
     if message.contact and message.contact.user_id != message.from_user.id:
-        await message.answer(ERR_PHONE_OWN_CONTACT)
+        await message.answer(ERR_PHONE_OWN_CONTACT, parse_mode="HTML")
         return
     phone = message.contact.phone_number if message.contact else ""
     await state.update_data(phone=normalize_phone(phone))
     await state.set_state(AppealStates.problem)
-    await message.answer(PROMPT_PROBLEM, reply_markup=ReplyKeyboardRemove())
+    await message.answer(PROMPT_PROBLEM, reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
 
 
 @router.message(AppealStates.phone, F.text)
 async def process_phone_text(message: Message, state: FSMContext) -> None:
-    await message.answer(ERR_PHONE_USE_BUTTON, reply_markup=phone_keyboard())
+    await message.answer(ERR_PHONE_USE_BUTTON, reply_markup=phone_keyboard(), parse_mode="HTML")
 
 
 @router.message(AppealStates.problem, F.text)
@@ -93,4 +93,4 @@ async def process_problem(message: Message, state: FSMContext) -> None:
         user_id=appeal.user_id,
         district=appeal.district,
     )
-    await message.answer(SUCCESS_APPEAL_SUBMITTED)
+    await message.answer(SUCCESS_APPEAL_SUBMITTED, parse_mode="HTML")

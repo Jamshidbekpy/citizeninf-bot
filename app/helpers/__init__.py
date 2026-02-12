@@ -3,7 +3,8 @@ Helpers for handlers: text templates, validation, appeal formatting and delivery
 """
 
 from app.helpers.text import (
-    WELCOME,
+    START_INSTRUCTION,
+    PROMPT_DISTRICT,
     PROMPT_FULL_NAME,
     PROMPT_PHONE,
     PROMPT_PROBLEM,
@@ -22,7 +23,8 @@ from app.helpers.validation import normalize_phone
 from app.helpers.appeal import send_appeal_to_group
 
 __all__ = [
-    "WELCOME",
+    "START_INSTRUCTION",
+    "PROMPT_DISTRICT",
     "PROMPT_FULL_NAME",
     "PROMPT_PHONE",
     "PROMPT_PROBLEM",

@@ -17,5 +17,6 @@ async def send_appeal_to_group(bot: Bot, appeal: Appeal) -> object | None:
         config.GROUP_ID,
         text,
         reply_markup=appeal_done_inline(appeal.id),
+        parse_mode="HTML",
     )
     return msg

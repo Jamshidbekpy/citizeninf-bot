@@ -54,7 +54,7 @@ async def callback_done(callback: CallbackQuery) -> None:
     )
     new_text = format_appeal_reviewed(appeal, reviewer_name)
     try:
-        await callback.message.edit_text(new_text, reply_markup=None)
+        await callback.message.edit_text(new_text, reply_markup=None, parse_mode="HTML")
     except Exception as e:
         logger.warning("edit_message_failed", appeal_id=appeal_id, error=str(e))
     try:

@@ -34,6 +34,13 @@ def phone_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def start_appeal_inline() -> InlineKeyboardMarkup:
+    """Start dan keyin: «Murojaat qilish» — tuman tanlash bosqichiga o‘tkazadi."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✉️ Yuborish", callback_data="start_appeal")]
+    ])
+
+
 def appeal_done_inline(appeal_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Ko‘rib chiqildi / Tugatildi", callback_data=f"done:{appeal_id}")]

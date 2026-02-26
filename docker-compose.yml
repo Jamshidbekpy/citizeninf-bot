@@ -17,6 +17,9 @@ services:
   bot:
     build: .
     env_file: .env
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
